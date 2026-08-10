@@ -7,15 +7,16 @@ The **Animate** is the animation player for the Iskra Delta Partner computer.
 
 ## Compiling
 
-To build the *Animate*, you will need a *Linux* machine with the latest version of the *SDCC suite* and *cpmtools*.
+*To compile Animate, you will need `make`, Docker, and the
+[`wischner/xcc-z80-idp`](https://github.com/wischner/docker-toolchains) image.*
 
-To download all required submodules, clone this repository with the `--recursive` switch:
+Use `make` to compile Animate. It starts one container and runs the complete
+build with the image's XCC toolchain, Partner headers and libraries, and CP/M
+disk tool. No host toolchain, submodules, or additional libraries are needed.
 
-~~~
-git clone https://github.com/tstih/idp-animate.git --recursive
-~~~
-
-Use `make` to build Animate. Afterwards, you will find the disk image `fddb.img` with sample animations and the executables in the `bin/` directory.
+Afterwards, both `animate.com` and the ready-to-boot floppy image `fddb.img` are
+in the `bin/` directory. The floppy also holds every animation from
+[data/animations/](data/animations/).
 
 ## Running
 
@@ -125,7 +126,7 @@ Escape sequence `-128, 0` can only be followed by single-byte coordinates. If yo
         ;; drawing from this point will start at 400, 300
 ~~~
 
-For more examples, please explore the animations in this project's [extras](disk/extras/) directory.
+For more examples, please explore the animations in this project's [data/animations/](data/animations/) directory.
 
 [language.url]:   https://en.wikipedia.org/wiki/ANSI_C
 [language.badge]: https://img.shields.io/badge/language-C-blue.svg

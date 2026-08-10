@@ -1,98 +1,68 @@
-# We only allow compilation on linux!
-ifneq ($(shell uname), Linux)
-$(error OS must be Linux!)
-endif
+# Animate build.
+#
+# The host make starts one container; make inside the container performs the
+# complete build with xcc, xas, and cpmdisk.
 
-# Check if all required tools are on the system.
-REQUIRED = sdcc sdar sdasz80 sdldz80 sdobjcopy sed cpmcp
-K := $(foreach exec,$(REQUIRED),\
-    $(if $(shell which $(exec)),,$(error "$(exec) not found. Please install or add to path.")))
+IMAGE		=	wischner/xcc-z80-idp:latest
 
-# Global settings: folders.
-export ROOT 		=	$(realpath .)
-export BUILD_DIR	=	$(ROOT)/build
-export BIN_DIR		=	$(ROOT)/bin
-export SRC_DIR		=	$(ROOT)/src
-export LIB_DIR		=	$(ROOT)/lib
-export INC_DIR		=	$(SRC_DIR) \
-						$(LIB_DIR)/idp-udev/include
-export DISK_DIR		=	$(ROOT)/disk
+ifeq ($(IN_CONTAINER),)
 
-# Globa settings: 8 bit tools.
-export CC			=	sdcc
-export CFLAGS		=	--std-c11 -mz80 --debug --nostdinc \
-						$(addprefix -I,$(INC_DIR))
-export AS			=	sdasz80
-export ASFLAGS		=	-xlos -g
-export AR			=	sdar
-export ARFLAGS		=	-rc
-export LD			=	sdcc
-export LDFLAGS		=	-mz80 -Wl -y --code-loc 0x100 \
-						--no-std-crt0 --nostdlib --nostdinc \
-						$(addprefix -L,$(BIN_DIR)) \
-						-lusdcc -lulibc -lugpx -p
-export OBJCOPY		=	sdobjcopy
-export CRT0			=	crt0
+CONTAINER_WORKDIR	=	/work
+DOCKER_RUN		=	docker run --rm \
+					--user "$(shell id -u):$(shell id -g)" \
+					-v "$(CURDIR):$(CONTAINER_WORKDIR)" \
+					-w $(CONTAINER_WORKDIR) \
+					$(IMAGE)
 
-# Data segment fix (relink due to SDCC bug)
-export L2           =   sdldz80
-export L2FLAGS      =   -nf
-export L2FIX        =   sed '/-b _DATA = 0x8000/d'
+.PHONY: all clean
+all clean:
+	$(DOCKER_RUN) make --no-print-directory IN_CONTAINER=1 $@
 
-# Floppy disk image
-export FLOPPY		=	fddb.img
+else
 
-# Change this to set implied target
-export APPNAME      =   animate
+BUILD_DIR	=	build
+BIN_DIR		=	bin
+INC_DIR		=	src
+DATA_DIR	=	data
+PLATFORM	=	cpm3
+CFLAGS		=	-Os
+TARGET		=	animate
+DISK_TYPE	=	fdd
+FLOPPY		=	$(BIN_DIR)/fddb.img
 
-# Install dir
-export INSTALL_DIR	=	~/Dex
+vpath %.c src
+vpath %.s src
 
-# Are there any extra files to add to the build.
-export EXTRAS		=	$(wildcard $(DISK_DIR)/extras/*)
+C_SRCS		=	$(wildcard src/*.c)
+S_SRCS		=	$(wildcard src/*.s)
+OBJS		=	$(addprefix $(BUILD_DIR)/,$(notdir $(C_SRCS:.c=.rel)) $(notdir $(S_SRCS:.s=.rel)))
+ANIMATIONS	=	$(wildcard $(DATA_DIR)/animations/*.A)
 
-# Rules.
 .PHONY: all
-all:	mkdirs $(LIB_DIR) $(SRC_DIR) mkdisk
+all: $(FLOPPY)
 
-.PHONY: $(SRC_DIR)
-$(SRC_DIR):
-	$(MAKE) -C $@
-
-.PHONY: $(LIB_DIR)
-$(LIB_DIR):
-	$(MAKE) -C $@ BIN_DIR=$(BIN_DIR) BUILD_DIR=$(BUILD_DIR)/lib
-
-.PHONY: mkdirs
-mkdirs:
-	# Create build dir.
+$(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)/$(APPNAME)
-	# And bin dir.
+
+$(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-.PHONY: mkdisk
-mkdisk: 
-	# Inside bin dir.
-	cp $(DISK_DIR)/diskdefs .
-	mkfs.cpm -f idpfdd -t $(BIN_DIR)/$(FLOPPY)
-	cpmcp -f idpfdd $(BIN_DIR)/$(FLOPPY) $(BUILD_DIR)/$(APPNAME)/$(APPNAME).com 0:$(APPNAME).com
-	cp $(BUILD_DIR)/$(APPNAME)/$(APPNAME).com $(BIN_DIR)
-ifneq (,$(EXTRAS))
-	cp $(DISK_DIR)/extras/* $(BIN_DIR)
-	cpmcp -f idpfdd $(BIN_DIR)/$(FLOPPY) $(DISK_DIR)/extras/*.* 0:
-endif
-	rm ./diskdefs
+$(BUILD_DIR)/%.rel: %.c | $(BUILD_DIR)
+	xcc --platform $(PLATFORM) $(CFLAGS) -I$(INC_DIR) -c -o $@ $<
 
-.PHONY: install
-install: all
-	cp $(BIN_DIR)/$(FLOPPY) $(INSTALL_DIR)/$(FLOPPY)
+$(BUILD_DIR)/%.rel: %.s | $(BUILD_DIR)
+	xas -I$(INC_DIR) -o $@ $<
 
-.PHONY: uninstall
-uninstall:
-	rm -f $(INSTALL_DIR)/$(FLOPPY)
+$(BIN_DIR)/$(TARGET).com: $(OBJS) | $(BIN_DIR)
+	xcc --platform $(PLATFORM) --oformat=binary -lsdk -lugpx -o $@ $(OBJS)
+
+$(FLOPPY): $(BIN_DIR)/$(TARGET).com $(ANIMATIONS)
+	rm -f $(FLOPPY)
+	cpmdisk create $(FLOPPY) $(DISK_TYPE)
+	cpmdisk add $(FLOPPY) -u 0 $(BIN_DIR)/$(TARGET).com $(ANIMATIONS)
 
 .PHONY: clean
-clean: 
-	rm -f -r $(BIN_DIR)
-	rm -f -r $(BUILD_DIR)
+clean:
+	rm -rf $(BUILD_DIR) $(BIN_DIR)
+
+endif

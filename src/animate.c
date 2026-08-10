@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <ugpx.h>
+#include <partner/conio.h>
 
 #include <animate.h>
 
